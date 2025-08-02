@@ -1,0 +1,544 @@
+---
+title: "OAT1 Omics Analysis"
+author: Sydney Cole
+output: html_notebook
+---
+
+
+```{r counts_seurat, echo=FALSE}
+library(ggplot2)
+library(Seurat)
+
+# 1. Create expression values with controlled overlap
+set.seed(123)
+healthy_expr <- rnorm(50, mean = 15, sd = 3)  # Healthy: mean=15, some variability
+ckd_expr <- rnorm(50, mean = 8, sd = 4)       # CKD/AKI: mean=8, more variability
+
+# Ensure no negative values (impossible for counts)
+healthy_expr <- pmax(healthy_expr, 0)
+ckd_expr <- pmax(ckd_expr, 0)
+
+# 2. Assign to counts matrix
+counts["SLC22A6", ] <- c(healthy_expr, ckd_expr)
+
+# 3. Round to integers (since counts must be whole numbers)
+counts["SLC22A6", ] <- round(counts["SLC22A6", ])
+
+# 4. Create Seurat object (same as before)
+seurat_obj <- CreateSeuratObject(counts)
+seurat_obj$disease_status <- rep(c("Healthy", "CKD/AKI"), each = 50)
+
+# 5. Plot with more realistic distribution
+VlnPlot(seurat_obj, features = "SLC22A6", 
+        group.by = "disease_status",
+        cols = c("#1f77b4", "#ff7f0e"),
+        pt.size = 0.3) +  # Show individual points
+  geom_boxplot(width = 0.1, fill = "white", alpha = 0.7) +
+  labs(title = "OAT1 Expression: Healthy vs. CKD/AKI Cells", x = "Disease State",
+       y = "SLC22A6 Expression") +
+  stat_compare_means(method = "t.test", 
+                     label = "p.format",
+                     label.y = 25) +
+  ylim(0, 25)  # Set consistent y-axis
+
+```
+
+
+```{r coexpression, echo=FALSE}
+# Load libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+set.seed(42)  # for reproducibility
+
+# Gene list: SLC22A6 + 10 known co-expressed genes
+genes <- c("SLC22A6", "LRP2", "SLC34A1", "AQP1", "CUBN", 
+           "PDZK1", "ABCC4", "UMOD", "SLC22A8", "SLC5A2", "ALDOB")
+
+n_samples_per_group <- 20
+groups <- rep(c("Healthy", "CKD"), each = n_samples_per_group)
+
+# Simulate expression data
+simulate_expression <- function(gene) {
+  base_expr <- rnorm(n_samples_per_group, mean = 10, sd = 2)
+  
+  if (gene %in% c("SLC22A6", "LRP2", "SLC34A1", "AQP1", "CUBN", "PDZK1")) {
+    # Downregulated in CKD
+    c(base_expr, rnorm(n_samples_per_group, mean = 7, sd = 2))
+  } else {
+    # Stable expression
+    c(base_expr, rnorm(n_samples_per_group, mean = 10, sd = 2))
+  }
+}
+
+# Generate expression matrix
+expr_data <- sapply(genes, simulate_expression)
+expr_df <- data.frame(Sample = paste0("Sample", 1:(2 * n_samples_per_group)),
+                      Group = groups,
+                      expr_data)
+
+# Reshape for plotting
+expr_long <- expr_df %>%
+  pivot_longer(cols = all_of(genes), names_to = "Gene", values_to = "Expression")
+
+# Plot boxplots
+ggplot(expr_long, aes(x = Group, y = Expression, fill = Group)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  facet_wrap(~Gene, scales = "free_y", ncol = 4) +
+  scale_fill_manual(values = c("Healthy" = "#4CAF50", "CKD" = "#F44336")) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Expression of SLC22A6 and Co-expressed Genes in Healthy vs CKD",
+       subtitle = "Simulated data in kidney proximal tubule cells",
+       x = "", y = "Expression Level") +
+  theme(strip.text = element_text(face = "bold"),
+        legend.position = "top")
+
+```
+
+
+```{r expr_sim, echo=FALSE}
+# Load libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(pheatmap)
+library(RColorBrewer)
+
+set.seed(42)
+
+# Gene list: SLC22A6 + known co-expressed genes
+genes <- c("SLC22A6", "LRP2", "SLC34A1", "AQP1", "CUBN", 
+           "PDZK1", "ABCC4", "UMOD", "SLC22A8", "SLC5A2", "ALDOB")
+
+n_samples_per_group <- 20
+groups <- rep(c("Healthy", "CKD"), each = n_samples_per_group)
+
+# Simulate expression data
+simulate_expression <- function(gene) {
+  base_expr <- rnorm(n_samples_per_group, mean = 10, sd = 2)
+  
+  if (gene %in% c("SLC22A6", "LRP2", "SLC34A1", "AQP1", "CUBN", "PDZK1")) {
+    # Downregulated in CKD
+    c(base_expr, rnorm(n_samples_per_group, mean = 7, sd = 2))
+  } else {
+    # Stable expression
+    c(base_expr, rnorm(n_samples_per_group, mean = 10, sd = 2))
+  }
+}
+
+# Generate data matrix
+expr_data <- sapply(genes, simulate_expression)
+expr_df <- data.frame(Sample = paste0("Sample", 1:(2 * n_samples_per_group)),
+                      Group = groups,
+                      expr_data)
+
+# ----------------------------------------
+# Boxplot
+# ----------------------------------------
+expr_long <- expr_df %>%
+  pivot_longer(cols = all_of(genes), names_to = "Gene", values_to = "Expression")
+
+ggplot(expr_long, aes(x = Group, y = Expression, fill = Group)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  facet_wrap(~Gene, scales = "free_y", ncol = 4) +
+  scale_fill_manual(values = c("Healthy" = "#4CAF50", "CKD" = "#F44336")) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Expression of SLC22A6 and Co-expressed Genes in Healthy vs CKD",
+       subtitle = "Simulated data for kidney proximal tubule cells",
+       x = "", y = "Expression Level") +
+  theme(strip.text = element_text(face = "bold"),
+        legend.position = "top")
+
+# ----------------------------------------
+# PCA Plot
+# ----------------------------------------
+expr_matrix <- expr_df[, genes]
+pca_result <- prcomp(expr_matrix, scale. = TRUE)
+
+pca_df <- as.data.frame(pca_result$x)
+pca_df$Group <- expr_df$Group
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_minimal(base_size = 14) +
+  scale_color_manual(values = c("Healthy" = "#4CAF50", "CKD" = "#F44336")) +
+  labs(title = "PCA of Simulated Gene Expression",
+       subtitle = "SLC22A6 and Co-expressed Genes",
+       x = "PC1", y = "PC2")
+
+# ----------------------------------------
+# Heatmap
+# ----------------------------------------
+# Column annotation instead of row
+annotation_col <- data.frame(Group = factor(groups))
+rownames(annotation_col) <- expr_df$Sample
+
+# Flip: genes as rows, samples as columns
+pheatmap(t(expr_scaled),
+         annotation_col = annotation_col,
+         cluster_cols = FALSE,
+         cluster_rows = TRUE,
+         show_rownames = TRUE,
+         show_colnames = FALSE,
+         fontsize = 12,
+         color = colorRampPalette(rev(brewer.pal(n = 7, name = "RdYlBu")))(100),
+         main = "Heatmap of Gene Expression (Z-scored)\nGenes as Rows, Samples as Columns")
+
+
+```
+
+
+```{r ckd, echo=FALSE}
+
+library(splatter)
+library(Seurat)
+library(pheatmap)
+library(gridExtra)
+
+set.seed(123)
+
+# Parameters for Healthy (Group1) vs. CKD (Group2)
+params <- newSplatParams(
+  nGenes = 2000,
+  batchCells = 500,
+  group.prob = c(0.5, 0.5),  # 50% Healthy, 50% CKD
+  de.prob = 0.3,              # 30% genes differ between groups
+  de.facLoc = 0.5,            # Moderate fold changes
+  mean.shape = 0.6,           # More genes expressed in more cells
+  mean.rate = 0.25            # Higher baseline expression
+)
+
+# Simulate
+sim <- splatSimulate(params, method = "groups")
+
+# Key genes of interest
+transporter_genes <- c("SLC22A6", "SLC22A8", "ABCC2", "ABCG2", "CUBN", "LRP2")
+rownames(sim) <- paste0("Gene", 1:2000)
+rownames(sim)[1:6] <- transporter_genes
+
+# Healthy: Strong OAT1/OAT3 co-expression
+counts(sim)["SLC22A6", sim$Group == "Group1"] <- counts(sim)["SLC22A6", sim$Group == "Group1"] * 3
+
+# Get the number of Healthy (Group1) cells
+n_healthy <- sum(sim$Group == "Group1")
+
+# Set SLC22A8 (OAT3) expression in Healthy cells:
+# - 90% of SLC22A6 (OAT1) level + mild noise
+counts(sim)["SLC22A8", sim$Group == "Group1"] <- 
+  counts(sim)["SLC22A6", sim$Group == "Group1"] * 0.9 + 
+  rnorm(n_healthy, sd = 0.1)  # Noise ONLY for Group1
+
+# CKD: Disrupted OAT1/OAT3
+counts(sim)["SLC22A6", sim$Group == "Group2"] <- counts(sim)["SLC22A6", sim$Group == "Group2"] * 0.5
+n_ckd <- sum(sim$Group == "Group2")
+counts(sim)["SLC22A8", sim$Group == "Group2"] <- 
+  counts(sim)["SLC22A6", sim$Group == "Group2"] * 0.7 + 
+  rnorm(n_ckd, sd = 0.8)  # Higher noise in CKD
+
+# PT markers (expressed in ~20% of cells)
+counts(sim)["CUBN", ] <- ifelse(counts(sim)["CUBN", ] == 0, 5, counts(sim)["CUBN", ] * 3)
+counts(sim)["LRP2", ] <- counts(sim)["LRP2", ] * 4
+
+seurat_obj <- CreateSeuratObject(
+  counts = counts(sim),
+  meta.data = as.data.frame(colData(sim))
+)
+
+# Label conditions
+seurat_obj$Condition <- ifelse(seurat_obj$Group == "Group1", "Healthy", "CKD")
+
+# Define PT cells (top 20% of CUBN+LRP2 expressers)
+combined_expr <- LayerData(seurat_obj, assay = "RNA", layer = "counts")["CUBN", ] + 
+                 LayerData(seurat_obj, assay = "RNA", layer = "counts")["LRP2", ]
+seurat_obj$CellType <- ifelse(
+  combined_expr > quantile(combined_expr, 0.8),
+  "Proximal_Tubule",
+  "Other"
+)
+
+# Verify
+table(seurat_obj$Condition, seurat_obj$CellType)
+
+seurat_obj <- NormalizeData(seurat_obj)
+seurat_obj <- FindVariableFeatures(seurat_obj)
+seurat_obj <- ScaleData(seurat_obj)
+
+
+```
+
+
+
+```{r prox_tub, echo=FALSE}
+
+# Subset PT cells
+pt_cells <- subset(seurat_obj, subset = CellType == "Proximal_Tubule")
+
+# Get normalized expression
+expr_data <- LayerData(
+  pt_cells,
+  assay = "RNA",
+  layer = "data"
+)[transporter_genes, ]
+
+# Split by condition
+healthy_expr <- as.data.frame(t(expr_data[, pt_cells$Condition == "Healthy"]))
+ckd_expr <- as.data.frame(t(expr_data[, pt_cells$Condition == "CKD"]))
+
+# Calculate correlations
+healthy_cor <- cor(healthy_expr, use = "complete.obs", method = "spearman")
+ckd_cor <- cor(ckd_expr, use = "complete.obs", method = "spearman")
+
+# Plot with identical scales
+heat_colors <- colorRampPalette(c("blue", "white", "red"))(100)
+cor_range <- seq(-1, 1, length.out = 100)
+
+p1 <- pheatmap(
+  healthy_cor,
+  color = heat_colors,
+  breaks = cor_range,
+  main = "Healthy PT Cells\n(Expected: High OAT1-OAT3 Correlation)",
+  display_numbers = TRUE,
+  number_format = "%.2f",
+  cluster_rows = FALSE,
+  cluster_cols = FALSE
+)
+
+p2 <- pheatmap(
+  ckd_cor,
+  color = heat_colors,
+  breaks = cor_range,
+  main = "CKD PT Cells\n(Expected: Disrupted Correlations)",
+  display_numbers = TRUE,
+  number_format = "%.2f",
+  cluster_rows = FALSE,
+  cluster_cols = FALSE
+)
+
+grid.arrange(p1[[4]], p2[[4]], ncol = 2)
+
+```
+
+
+### Heatmap
+Color Scale:
+
+Red: High positive correlation (genes are co-expressed).
+
+Blue: Negative correlation (genes are anti-correlated).
+
+White: No correlation.
+
+Key Patterns:
+
+SLC22A6 (OAT1) and SLC22A8 (OAT3):
+
+If the cell at their intersection is red, they are co-expressed (expected for OAT1/OAT3, which often work together in toxin clearance).
+
+A weaker correlation (white/blue) might suggest dysregulation in CKD.
+
+SLC22A6 and ABCC2/MRPs:
+
+Positive correlation suggests coordinated detoxification.
+
+Negative correlation could indicate compensatory mechanisms in disease.
+
+Clustering: Genes grouped together by the dendrogram share similar expression patterns.
+
+Example Interpretation:
+"The heatmap reveals strong co-expression (red) between SLC22A6 (OAT1) and SLC22A8 (OAT3) in PT cells, consistent with their shared role in organic anion transport. In contrast, ABCG2 shows weak correlation (white), suggesting divergent regulation in CKD."
+
+
+
+### Dotplot
+Dot Size: Proportion of cells expressing the gene in each group.
+
+Dot Color: Average expression level (scaled); red = high, blue = low.
+
+
+Is SLC22A6 downregulated in cisplatin-treated cells?
+
+Smaller/blue dots in "Cisplatin" vs. larger/red dots in "Untreated" confirm your hypothesis.
+
+Are other transporters affected?
+
+If SLC22A8 (OAT3) is also downregulated, this suggests broad transporter dysfunction.
+
+Upregulation of ABCC2/MRPs might indicate a compensatory efflux mechanism.
+
+Interpretation:
+"The dot plot shows marked downregulation of SLC22A6 (OAT1) in cisplatin-treated PT cells (small blue dots) compared to untreated (large red dots), supporting impaired toxin uptake. In contrast, ABCC2 (MRP2) is upregulated, potentially reflecting a stress response to cisplatin-induced injury."
+
+
+
+CKD Impact:
+
+Loss of SLC22A6/OAT1 → Reduced uptake of uremic toxins (e.g., indoxyl sulfate) → Toxin accumulation.
+
+Co-downregulation of SLC22A8/OAT3 → Broader detoxification failure.
+
+Therapeutic Implications:
+
+Probenecid (OAT inhibitor) may worsen toxin retention if OAT1 is already suppressed.
+
+MRP/ABC upregulation could be a drug-resistance mechanism.
+
+
+
+## Metabolomics
+
+```{r toxins, echo=FALSE}
+library(pheatmap)
+library(clusterProfiler)
+library(RColorBrewer)
+
+# Simulate toxin data (10 toxins x 20 samples)
+
+# Define toxins (10 metabolites)
+toxins <- c("Indoxyl_Sulfate", "p-Cresol_Sulfate", "Kynurenine", 
+            "Tryptophan", "Hippurate", "Trimethylamine_N-Oxide",
+            "Phenylacetylglutamine", "Urea", "Creatinine", "Uric_Acid")
+
+# Simulate data for 20 samples (10 WT + 10 OAT1-KO)
+toxin_matrix <- matrix(
+  nrow = 10,  # 10 toxins
+  ncol = 20,  # 20 samples
+  dimnames = list(toxins, paste0("Sample_", 1:20))
+)
+
+# Fill WT samples (columns 1-10)
+toxin_matrix[, 1:10] <- cbind(
+  rnorm(10, mean = 5, sd = 1),   # Indoxyl_Sulfate
+  rnorm(10, mean = 4, sd = 1),   # p-Cresol_Sulfate
+  rnorm(10, mean = 3, sd = 0.8), # Kynurenine
+  rnorm(10, mean = 8, sd = 1.5), # Tryptophan
+  rnorm(10, mean = 4, sd = 1),   # Hippurate
+  rnorm(10, mean = 3, sd = 0.5), # TMAO
+  rnorm(10, mean = 2, sd = 0.5), # PAGln
+  rnorm(10, mean = 6, sd = 1),   # Urea
+  rnorm(10, mean = 5, sd = 1),   # Creatinine
+  rnorm(10, mean = 4, sd = 0.8)  # Uric Acid
+)
+
+# Fill OAT1-KO samples (columns 11-20) with higher toxins
+toxin_matrix[, 11:20] <- toxin_matrix[, 1:10] * c(3, 3, 3, 0.5, 2, 1.5, 2, 1.2, 1.1, 1.1) + 
+  matrix(rnorm(100, sd = 1), nrow = 10)
+
+# Add sample annotations
+disease_annotation <- data.frame(
+  Group = rep(c("WT", "OAT1_KO"), each = 10),
+  row.names = colnames(toxin_matrix)
+)
+
+# Plot
+pheatmap(toxin_matrix,
+         annotation_col = disease_annotation,
+         color = colorRampPalette(c("blue", "white", "red"))(100),
+         scale = "row",
+         main = "Uremic Toxins in OAT1-KO vs WT",
+         cluster_cols = FALSE, 
+         show_colnames = FALSE,
+         gaps_col = 10)
+
+
+```
+
+
+```{r kegg, echo=FALSE}
+library(clusterProfiler)
+library(enrichplot)
+library(dplyr)
+
+# 1. Create pathway data with Count column
+kegg_data <- data.frame(
+  ID = c("hsa00020", "hsa00350", "hsa00250", "hsa00650", 
+         "hsa00230", "hsa00380", "hsa00760", "hsa00280",
+         "hsa00910", "hsa00630", "hsa00640", "hsa00260",
+         "hsa00240", "hsa00230"),
+  Description = c("TCA cycle", 
+                 "Tyrosine metabolism",
+                 "Alanine/aspartate/glutamate metabolism",
+                 "Butanoate metabolism",
+                 "Arginine/proline metabolism",
+                 "Tryptophan metabolism", # Most impacted
+                 "Nicotinate/nicotinamide metabolism",
+                 "Valine/leucine/isoleucine degradation",
+                 "Nitrogen metabolism",
+                 "Glyoxylate/dicarboxylate metabolism",
+                 "Propanoate metabolism",
+                 "Glycine/serine/threonine metabolism",
+                 "Purine metabolism",
+                 "Pyrimidine metabolism"),
+  GeneRatio = c("5/50", "8/50", "7/50", "4/50", 
+                "6/50", "12/50", "3/50", "5/50",
+                "2/50", "4/50", "3/50", "5/50",
+                "6/50", "5/50"),
+  Count = c(5, 8, 7, 4, 6, 12, 3, 5, 2, 4, 3, 5, 6, 5),
+  pvalue = c(0.001, 1e-4, 0.005, 0.01,
+             0.002, 1e-8, 0.05, 0.01,
+             0.05, 0.02, 0.03, 0.01,
+             0.001, 0.002),
+  BgRatio = rep("100/5000", 14),
+  geneID = paste0("gene", 1:14),
+  stringsAsFactors = FALSE
+)
+
+# Add adjusted p-values (dotplot() requires this)
+kegg_data$p.adjust <- p.adjust(kegg_data$pvalue, method = "BH")
+
+set.seed(123)
+kegg_data$qvalue <- kegg_data$p.adjust * runif(nrow(kegg_data), min = 0.8, max = 1.2)
+kegg_data$qvalue <- pmin(kegg_data$qvalue, 1)  # Ensure qvalue ≤ 1
+
+# 2. Now create enrichResult (with p.adjust column included)
+kegg_sim <- new("enrichResult",
+    result = kegg_data,
+    pvalueCutoff = 0.05,
+    pAdjustMethod = "BH",
+    qvalueCutoff = 0.2,
+    organism = "hsa",
+    ontology = "KEGG",
+    gene = paste0("gene", 1:50),
+    keytype = "kegg"
+)
+
+# 3. Plot with Count-based sizing
+dotplot(kegg_sim, 
+        showCategory = 10,
+        title = "Pathways Disrupted in OAT1-KO (Simulated)",
+        font.size = 10)
+
+
+```
+
+
+
+
+- Dots sized by *Count* (number of genes in pathway); 
+
+    - Largest = Tryptophan metabolism (most genes affected)
+
+- Color intensity by *-log10(pvalue)*; 
+
+    - red = significant
+
+- Y-axis order: Pathways ranked by enrichment 
+
+- Expected patterns:
+
+    - *Amino acid* metabolism pathways cluster together
+
+    - *Energy* pathways (TCA, nitrogen) show secondary (moderate) disruption
+  
+
+**Metabolite Cross-Linking** - Pathways connect to known OAT1 substrates and downstream effects:
+
+  - *Tryptophan* → **Indoxyl sulfate**
+
+  - *Purines* → **Uric acid**
+
+  - *TCA cycle* → **Mitochondrial dysfunction**
+
+
